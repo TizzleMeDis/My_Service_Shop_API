@@ -20,7 +20,7 @@ Payload:
      "phone": "2098089454"
 }
 
-### See Cystomers
+### See Customers
 
 Get: https://ServerName/customers
 Result:
