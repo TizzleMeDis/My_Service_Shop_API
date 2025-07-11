@@ -3,11 +3,11 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from marshmallow import ValidationError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, Table, String, Column, select, Date, Integer
+from sqlalchemy import ForeignKey, Table, String, Column, select, Date, Integer, insert, delete
 from typing import List
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:****@localhost/library_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:3693@localhost/library_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 class Base(DeclarativeBase):
@@ -18,31 +18,24 @@ ma = Marshmallow(app)
 
 
 # Association table for service tickets  
-class ServiceTickets(Base):
-    __tablename__ = 'service_tickets'
+class TicketInformation(Base):
+    __tablename__ = 'ticket_information'
 
-    car_vin: Mapped[str] = mapped_column(ForeignKey("cars.vin"), primary_key=True)
-    mechanic_id: Mapped[int] = mapped_column(ForeignKey("mechanics.id"), primary_key=True)
+    #one-one relationship to junction table
+    id: Mapped[int] = mapped_column(primary_key=True)
 
     service_date: Mapped[Date] = mapped_column(Date)
     issue: Mapped[str] = mapped_column(String(300))
     result: Mapped[str] = mapped_column(String(300))
     labor_cost: Mapped[int] = mapped_column(Integer)
 
-    # Optional reverse relationships if needed
-    car: Mapped["Car"] = relationship("Car", back_populates="service_tickets")
-    mechanic: Mapped["Mechanic"] = relationship("Mechanic", back_populates="service_tickets")
-
-# service_tickets = Table(
-#     "service_tickets",
-#     Base.metadata,
-#     Column("car_vin", ForeignKey("cars.vin")),
-#     Column("mechanic_id", ForeignKey("mechanics.id")),
-#     Column("date", Date),
-#     Column("issue", String(300)),
-#     Column("result", String(300)),
-#     Column("labor_cost", Integer),
-# )
+service_tickets = Table(
+    "service_tickets",
+    Base.metadata,
+    Column("id", ForeignKey("ticket_information.id")),
+    Column("car_vin", ForeignKey("cars.vin")),
+    Column("mechanic_id", ForeignKey("mechanics.id")),
+)
 
 class Customer(Base):
     __tablename__ = 'customers'
@@ -52,7 +45,7 @@ class Customer(Base):
     email: Mapped[str] = mapped_column(String(360), nullable=False, unique=True)
     phone: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
 
-    cars: Mapped[List['Car']] = relationship("Car", back_populates="owner")
+    cars: Mapped[List['Car']] = relationship("Car", back_populates="customer")
 
 class Mechanic(Base):
     __tablename__ = 'mechanics'
@@ -64,7 +57,7 @@ class Mechanic(Base):
     phone: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
     salary: Mapped[int] = mapped_column(nullable=False)
     # Many-to-many relationship with cars through service_tickets
-    service_tickets: Mapped[List["ServiceTickets"]] = relationship("ServiceTickets", back_populates="mechanic")
+    tickets: Mapped[List["Car"]] = relationship(secondary=service_tickets, back_populates="service")
 
 class Car(Base):
     __tablename__ = 'cars'
@@ -77,9 +70,9 @@ class Car(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
 
     # Direct relationship to the car's owner
-    owner: Mapped["Customer"] = relationship("Customer", back_populates="cars")
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="cars")
     # Many-to-many relationship with mechanics through service_tickets
-    service_tickets: Mapped[List["ServiceTickets"]] = relationship("ServiceTickets", back_populates="car")
+    service: Mapped[List["Mechanic"]] = relationship(secondary=service_tickets, back_populates="tickets")
 
 
 # Marshmallow Schemas
@@ -96,12 +89,15 @@ class MechanicSchema(ma.SQLAlchemyAutoSchema):
 class CarSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
         model = Car
-        include_relationships = True
+        include_fk = True
+        include_relationships = False
 
-class ServiceTicketSchema(ma.SQLAlchemyAutoSchema):
+class TicketInformationSchema(ma.SQLAlchemyAutoSchema):
     class Meta:
-        model: ServiceTickets
+        model = TicketInformation
+        load_instance = True
         include_relationships = True
+        
 
 customer_schema =CustomerSchema()
 customers_schema = CustomerSchema(many=True) #variant that allows for the serialization of many Users,
@@ -112,9 +108,8 @@ mechanics_schema = MechanicSchema(many=True)
 car_schema =CarSchema()
 cars_schema = CarSchema(many=True)
 
-service_ticket_schema = ServiceTicketSchema()
-service_tickets_schema = ServiceTicketSchema(many=True)
-
+ticket_information_schema = TicketInformationSchema()
+ticket_information_schemas = TicketInformationSchema(many=True)
 #================== Routes ======================
 # ===========================================================================
 #                               Customer Routes
@@ -184,6 +179,9 @@ def delete_customer(customer_id):
     if not customer:
         return jsonify({"error": "Customer not found"}), 404
     
+    if customer.cars:
+        return jsonify({"error": f"Delete owner {len(customer.cars)} car(s) first"}), 400
+    
     db.session.delete(customer)
     db.session.commit()
     return jsonify({"message": f"Customer id: {customer_id}, successfully deleted."}), 200
@@ -196,9 +194,9 @@ def create_car():
     try:
         car_data = car_schema.load(request.json)
     except ValidationError as err:
-        return jsonify(err.messages)
+        return jsonify(err.messages), 400
     
-    customer = db.session.get(Customer, car_data['owner'])
+    customer = db.session.get(Customer, car_data['customer_id'])
     if not customer:
         return jsonify({"error": "Customer not found"}), 400
     
@@ -322,7 +320,7 @@ def create_mechanic():
     existing_mechanic = db.session.execute(query).scalars().all()
 
     if existing_mechanic:
-        return jsonify({"error": "Car with same plate numbers"}), 400
+        return jsonify({"error": "Mechanic with same email"}), 400
     
     new_mechanic = Mechanic(**mechanic_data)
     db.session.add(new_mechanic)
@@ -367,15 +365,100 @@ def update_mechanic(mechanic_id):
     db.session.commit()
     return mechanic_schema.jsonify(mechanic), 200
 
+@app.route("/mechanic/<int:mechanic_id>", methods=['DELETE'])
+def delete_mechanic(mechanic_id):
+    mechanic = db.session.get(Mechanic, mechanic_id)
+    
+    if not mechanic:
+        return jsonify({"error": "Mechanic not found"}), 400
+
+    db.session.delete(mechanic)
+    db.session.commit()
+
+    return jsonify({"message": f"Mechanic id: {mechanic_id}, successfully deleted."}), 200
+
+
 # ===========================================================================
 #                               Ticket Routes
 # ===========================================================================
-@app.route("/create_ticket", methods=['POST'])
-def create_ticket():
+@app.route("/service_tickets/mechanic/<int:mechanic_id>/vin/<string:vin>", methods=['POST'])
+def create_ticket(mechanic_id, vin):
     try:
-        ticket_data = mechanic_schema.load(request.json)
+        ticket_data = ticket_information_schema.load(request.json)
     except ValidationError as err:
-        return jsonify(err.messages)
+        print("Validation Error:", err.messages)  # 👈 print error to terminal
+        return jsonify(err.messages), 400
+    
+    mechanic = db.session.get(Mechanic, mechanic_id)
+    car = db.session.get(Car, vin)
+
+    if not car:
+        return jsonify({"error": "Car not found"}), 400
+    
+    if not mechanic:
+        return jsonify({"error": "Mechanic not found"}), 400
+    
+    new_ticket = ticket_data
+    db.session.add(new_ticket)
+    db.session.flush()
+
+    stmt = insert(service_tickets).values(
+        id=new_ticket.id,
+        car_vin=vin,
+        mechanic_id=mechanic_id
+    )
+    db.session.execute(stmt)
+    db.session.commit()
+    print("New ticket created")
+    return ticket_information_schema.jsonify(new_ticket), 201
+    
+@app.route("/service_tickets", methods=['GET'])
+def get_all_tickets():
+    query = select(TicketInformation)
+    service_tickets = db.session.execute(query).scalars().all()
+
+    return ticket_information_schemas.jsonify(service_tickets), 200 
+
+@app.route("/service_tickets/<int:ticket_id>", methods=['GET'])
+def get_specific_ticket(ticket_id):
+    ticket = db.session.get(TicketInformation, ticket_id)
+
+    if not ticket:
+        return jsonify({"error": "Ticket not found"}), 400
+    return ticket_information_schema.jsonify(ticket), 200
+
+
+@app.route("/service_tickets/<int:ticket_id>", methods=['PUT'])
+def update_ticket(ticket_id):
+    ticket = db.session.get(TicketInformation, ticket_id)
+    if not ticket:
+        return jsonify({"error": "Ticket not found"})
+    
+    try:
+        update_ticket_data = ticket_information_schema.load(request.json)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
+    
+    for key, value in update_ticket_data.__dict__.items():
+        if key != "_sa_instance_state":
+            setattr(ticket, key, value)
+    setattr(ticket, "id", ticket_id)
+    db.session.commit()
+    return ticket_information_schema.jsonify(update_ticket_data), 200
+
+@app.route("/service_tickets/<int:ticket_id>", methods=['DELETE'])
+def delete_ticket(ticket_id):
+    ticket = db.session.get(TicketInformation, ticket_id)
+
+    if not ticket:
+        return jsonify({"error": "Ticket not found"}), 400
+    
+    stmt = delete(service_tickets).where(service_tickets.c.id == ticket_id)
+    db.session.execute(stmt)
+    db.session.delete(ticket)
+    db.session.commit()
+
+    return jsonify({"message": f"Ticket {ticket_id} successfully deleted."}), 200
 
 if __name__ == '__main__':
     with app.app_context():
