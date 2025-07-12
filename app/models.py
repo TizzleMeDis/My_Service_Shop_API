@@ -30,20 +30,20 @@ class TicketInformation(Base):
 
     #relationships
     cars: Mapped[List["Car"]] = relationship(
-    "Car",
-    secondary=service_tickets,
-    primaryjoin="TicketInformation.id == service_tickets.c.id",
-    secondaryjoin="Car.vin == service_tickets.c.car_vin",
-    back_populates="services",
-    overlaps="mechanics,tickets")
+        "Car",
+        secondary=service_tickets,
+        primaryjoin="TicketInformation.id == service_tickets.c.id",
+        secondaryjoin="Car.vin == service_tickets.c.car_vin",
+        back_populates="services",
+        overlaps="mechanics,tickets")
 
     mechanics: Mapped[List["Mechanic"]] = relationship(
-    "Mechanic",
-    secondary=service_tickets,
-    primaryjoin="TicketInformation.id == service_tickets.c.id",
-    secondaryjoin="Mechanic.id == service_tickets.c.mechanic_id",
-    back_populates="tickets",
-    overlaps="cars,services")
+        "Mechanic",
+        secondary=service_tickets,
+        primaryjoin="TicketInformation.id == service_tickets.c.id",
+        secondaryjoin="Mechanic.id == service_tickets.c.mechanic_id",
+        back_populates="tickets",
+        overlaps="cars,services")
 
 class Customer(Base):
     __tablename__ = 'customers'
@@ -66,11 +66,11 @@ class Mechanic(Base):
     salary: Mapped[int] = mapped_column(nullable=False)
     # Many-to-many relationship with cars through service_tickets
     tickets: Mapped[List["TicketInformation"]] = relationship(
-    secondary=service_tickets,
-    primaryjoin="Mechanic.id == service_tickets.c.mechanic_id",
-    secondaryjoin="TicketInformation.id == service_tickets.c.id",
-    back_populates="mechanics",  # ✅ must match TicketInformation
-    overlaps="cars,services")
+        secondary=service_tickets,
+        primaryjoin="Mechanic.id == service_tickets.c.mechanic_id",
+        secondaryjoin="TicketInformation.id == service_tickets.c.id",
+        back_populates="mechanics",  # ✅ must match TicketInformation
+        overlaps="cars,services")
 
 class Car(Base):
     __tablename__ = 'cars'
@@ -86,8 +86,8 @@ class Car(Base):
     customer: Mapped["Customer"] = relationship("Customer", back_populates="cars")
     # Many-to-many relationship with mechanics through service_tickets
     services: Mapped[List["TicketInformation"]] = relationship(
-    secondary=service_tickets,
-    primaryjoin="Car.vin == service_tickets.c.car_vin",
-    secondaryjoin="TicketInformation.id == service_tickets.c.id",
-    back_populates="cars",
-    overlaps="mechanics,tickets")
+        secondary=service_tickets,
+        primaryjoin="Car.vin == service_tickets.c.car_vin",
+        secondaryjoin="TicketInformation.id == service_tickets.c.id",
+        back_populates="cars",
+        overlaps="mechanics,tickets")
