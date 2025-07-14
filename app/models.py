@@ -12,7 +12,7 @@ db = SQLAlchemy(model_class=Base)
 service_tickets = Table(
     "service_tickets",
     Base.metadata,
-    Column("id", ForeignKey("ticket_information.id")),
+    Column("id", ForeignKey("ticket_information.id"), primary_key=True),
     Column("car_vin", ForeignKey("cars.vin")),
     Column("mechanic_id", ForeignKey("mechanics.id")),
 )

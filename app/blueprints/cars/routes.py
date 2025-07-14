@@ -1,9 +1,8 @@
 from .schemas import car_schema, cars_schema
-from app.models import Customer
 from flask import request, jsonify
 from marshmallow import ValidationError
 from sqlalchemy import select
-from app.models import Car, db
+from app.models import Customer, Car, db
 from . import cars_bp
 
 #Create car
@@ -72,6 +71,11 @@ def Update_car_plate(license_plate):
     except ValidationError as err:
         return jsonify(err.messages), 400
     
+    customer = db.session.get(Customer, update_car_data['customer_id'])
+
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 400
+    
     for key, value in update_car_data.items():
         setattr(car, key, value)
     
@@ -90,6 +94,11 @@ def Update_car_id(vin):
         update_car_data = car_schema.load(request.json)
     except ValidationError as err:
         return jsonify(err.messages), 400
+    
+    customer = db.session.get(Customer, update_car_data['customer_id'])
+
+    if not customer:
+        return jsonify({"error": "Customer not found"}), 400
     
     for key, value in update_car_data.items():
         setattr(car, key, value)

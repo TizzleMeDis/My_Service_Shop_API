@@ -24,7 +24,7 @@ def create_ticket_mechanic_car(mechanic_id, vin):
     try:
         ticket_data = ticket_information_schema.load(request.json)
     except ValidationError as err:
-        print("Validation Error:", err.messages)  # 👈 print error to terminal
+        print("Validation Error:", err.messages)
         return jsonify(err.messages), 400
     
     mechanic = db.session.get(Mechanic, mechanic_id)
@@ -88,14 +88,25 @@ def update_ticket(ticket_id):
 @service_tickets_bp.route("/<int:ticket_id>/assign-mechanic/<int:mechanic_id>", methods=['PUT'])
 def assign_mechanic(ticket_id, mechanic_id):
     ticket = db.session.get(TicketInformation, ticket_id)
+    mechanic = db.session.get(Mechanic, mechanic_id)
+    
+    query = select(service_tickets).where(service_tickets.c.id == ticket_id)
+    existing_ticket = db.session.execute(query).fetchone()
 
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 400
-    
-    stmt = insert(service_tickets).values(
-        id=ticket.id,
-        mechanic_id=mechanic_id
-    )
+    if not mechanic:
+        return jsonify({"error": "Mechanic not found"}), 400
+    if existing_ticket: #Make sure if ticket was made to update open ticket instead of inserting individual entry
+        stmt = (
+            service_tickets.update()
+            .where(service_tickets.c.id == ticket_id)
+            .values(mechanic_id = mechanic_id))
+    else:
+        stmt = insert(service_tickets).values(
+            id=ticket.id,
+            mechanic_id=mechanic_id
+        )
 
     db.session.execute(stmt)
     db.session.commit()
@@ -106,16 +117,23 @@ def assign_mechanic(ticket_id, mechanic_id):
 def assign_car(ticket_id, vin):
     ticket = db.session.get(TicketInformation, ticket_id)
     car = db.session.get(Car, vin)
+    query = select(service_tickets).where(service_tickets.c.id == ticket_id)
+    existing_ticket = db.session.execute(query).fetchone()
 
     if not ticket:
         return jsonify({"error": "Ticket not found"}), 400
     if not car:
         return jsonify({"error": "Car not found"}), 400
-
-    stmt = insert(service_tickets).values(
-        id=ticket.id,
-        car_vin=car.vin
-    )
+    if existing_ticket: #Make sure if ticket was made to update open ticket instead of inserting individual entry
+        stmt = (
+            service_tickets.update()
+            .where(service_tickets.c.id == ticket_id)
+            .values(car_vin = vin))
+    else:
+        stmt = insert(service_tickets).values(
+            id=ticket.id,
+            car_vin=vin
+        )
 
     db.session.execute(stmt)
     db.session.commit()
