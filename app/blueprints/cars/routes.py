@@ -4,6 +4,7 @@ from marshmallow import ValidationError
 from sqlalchemy import select
 from app.models import Customer, Car, db
 from . import cars_bp
+from app.extensions import limiter, cache
 
 #Create car
 @cars_bp.route("/", methods=['POST'])
@@ -32,8 +33,14 @@ def create_car():
 #Get all cars
 @cars_bp.route("/", methods=['GET'])
 def get_cars():
-    query = select(Car)
-    cars = db.session.execute(query).scalars().all()
+    try:
+        page = int(request.args.get('page'))
+        per_page = int(request.args.get('per_page'))
+        query = select(Car)
+        cars = db.paginate(query, page=page, per_page=per_page)
+    except:
+        query = select(Car)
+        cars = db.session.execute(query).scalars().all()
 
     return cars_schema.jsonify(cars), 200
 
@@ -121,6 +128,7 @@ def delete_car_vin(vin):
 
 #Delete Car by license plate
 @cars_bp.route("/plate/<string:license_plate>", methods=['DELETE'])
+@limiter.limit("20 per day")
 def delete_car_plate(license_plate):
     query = select(Car).where(Car.license_plate == license_plate)
     car = db.session.scalar(query)
