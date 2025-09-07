@@ -5,7 +5,7 @@ from marshmallow import ValidationError
 from sqlalchemy import select, insert, delete, and_
 from app.models import TicketInformation, Mechanic, Car, Inventory, TicketPart, service_tickets, db
 from . import service_tickets_bp
-from app.extensions import limiter, cache
+from app.extensions import limiter
 from app.utils.util import mechanic_token_required
 
 #Create ticket with information (no assignments)
@@ -16,7 +16,9 @@ def create_ticket():
     except ValidationError as err:
         return jsonify(err.messages), 400
     
-    new_ticket = ticket_data
+    new_ticket = ticket_data    
+    new_ticket.total_cost = new_ticket.labor_cost or 0
+
     db.session.add(new_ticket)
     db.session.commit()
 
@@ -52,6 +54,8 @@ def create_ticket_mechanic_car(mechanic_id, vin):
         return jsonify({"error": "Mechanic not found"}), 400
     
     new_ticket = ticket_data
+    new_ticket.total_cost = new_ticket.labor_cost or 0
+
     db.session.add(new_ticket)
     db.session.flush()
 
@@ -230,7 +234,7 @@ def assign_parts(ticket_id, part_id):
         return jsonify({"error": "Part not found"}), 400
 
     data = request.get_json()
-    quantity = data.get("quantity", 1)  # Default to 1 if not provided
+    quantity = data.get("quantity", 1) 
 
     # Check if part is already assigned to the ticket
     ticket_part = next((tp for tp in ticket.ticket_parts if tp.inventory_id == part_id), None)
@@ -244,14 +248,17 @@ def assign_parts(ticket_id, part_id):
             ticket_id=ticket.id,
             inventory_id=part.id,
             quantity=quantity,
-            part_cost=part.part_cost  # ✅ keep it as unit price
+            part_cost=part.part_cost  # Store unit price
         )
         db.session.add(ticket_part)
 
-    # ✅ Update total cost (labor + all parts)
-    parts_total = sum(tp.quantity * tp.part_cost for tp in ticket.ticket_parts)
-    print(parts_total)
-    ticket.total_cost = (ticket.labor_cost or 0) + parts_total
+    # Calculate total parts cost (quantity * unit_price for each part)
+    total_parts_cost = db.session.query(
+        db.func.sum(TicketPart.quantity * TicketPart.part_cost)
+    ).filter(TicketPart.ticket_id == ticket_id).scalar() or 0
+
+    # Update total cost (labor + all parts)
+    ticket.total_cost = (ticket.labor_cost or 0) + total_parts_cost
 
     db.session.commit()
 
@@ -291,7 +298,7 @@ def remove_parts(ticket_id, part_id):
         # Let user know this part wasn't found
         return jsonify({"error": "part wasn't order already."}), 400
 
-    # ✅ Update total cost (labor + all parts)
+    # Update total cost (labor + all parts)
     parts_total = sum(tp.quantity * tp.part_cost for tp in ticket.ticket_parts)
     print(parts_total)
     ticket.total_cost = (ticket.labor_cost or 0) + parts_total

@@ -3,9 +3,9 @@ from app.blueprints.service_tickets.schemas import ticket_information_schemas
 from flask import request, jsonify
 from marshmallow import ValidationError
 from sqlalchemy import select
-from app.models import Customer, TicketInformation, db
+from app.models import Customer, db
 from . import customers_bp
-from app.extensions import limiter, cache
+from app.extensions import limiter
 from app.utils.util import encode_token_customer, customer_token_required
 
 #Login token generation
@@ -113,7 +113,7 @@ def get_customer_cost(customer_id):
 
     sum = 0
     for ticket in all_tickets:
-        sum += ticket.labor_cost or 0
+        sum += ticket.total_cost or 0
 
     return jsonify({"Total cost": f"{sum}"}), 200
 

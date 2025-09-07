@@ -70,7 +70,7 @@ def update_item(part_id):
     db.session.commit()
     return inventory_schema.jsonify(item), 200
 
-#Delete iteam
+#Delete item
 @inventory_bp.route("/<int:part_id>", methods=['DELETE'])
 @limiter.limit("20 per day")
 def delete_item(part_id):

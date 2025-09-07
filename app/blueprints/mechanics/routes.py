@@ -1,11 +1,11 @@
 from .schemas import mechanic_schema, mechanics_schema, login_schema
-from app.blueprints.service_tickets.schemas import ticket_information_schemas, ticket_information_schema
+from app.blueprints.service_tickets.schemas import ticket_information_schemas
 from flask import request, jsonify
 from marshmallow import ValidationError
 from sqlalchemy import select
-from app.models import Mechanic, TicketInformation, db
+from app.models import Mechanic, db
 from . import mechanics_bp
-from app.extensions import limiter, cache
+from app.extensions import limiter
 from app.utils.util import encode_token_mechanic, mechanic_token_required
 from datetime import datetime
 #mechanic login
@@ -101,18 +101,21 @@ def get_jobs_by_date(mechanic_id):
     if not mechanic:
         return jsonify({"error": "Mechanic not found."}), 400
 
-    tickets = mechanic.tickets
+    if not date:
+        return jsonify({"error": "Missing required parameter: service_date"}), 400
 
     try:
         parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
-        tickets = [ticket for ticket in tickets if ticket.service_date == parsed_date]
     except ValueError:
         return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
-    
+
+    # filter tickets by date
+    tickets = [ticket for ticket in mechanic.tickets if ticket.service_date == parsed_date]
+
     if not tickets:
         return jsonify({"message": "No data found."}), 200
-    else:
-        return ticket_information_schemas.jsonify(mechanic.tickets), 200
+    
+    return ticket_information_schemas.jsonify(tickets), 200
 
 #Order mechanics by amount of tickets
 @mechanics_bp.route("/leaderboard", methods=['GET'])
@@ -123,7 +126,8 @@ def order_mechanics_by_job():
         {
             "id": mechanic.id,
             "name": mechanic.name,  # adjust if your field is named differently
-            "ticket_count": len(mechanic.tickets)
+            "ticket_count": len(mechanic.tickets),
+            "profit": sum(ticket.total_cost for ticket in mechanic.tickets)
         }
         for mechanic in mechanics
     ]
@@ -152,6 +156,7 @@ def update_mechanic(mechanic_id):
     db.session.commit()
     return mechanic_schema.jsonify(mechanic), 200
 
+#Delete mechanic
 @mechanics_bp.route("/", methods=['DELETE'])
 @mechanic_token_required
 @limiter.limit("20 per day")
